@@ -119,6 +119,17 @@ def image2vector(image):
 	# obtain a flat 'vector' image of shape (length*height*depth, 1)
 	return image.reshape((image.shape[0] * image.shape[1] * image.shape[2], 1))
 
+# ------------------- Loss ---------------------- #
+
+def compute_loss(a3, y):
+	# Implement the loss function
+
+	m = y.shape[1]
+	logprobs = np.multiply(-np.log(a3), y) + np.multiply(-np.log(1-a3), 1-y)
+	loss = 1./m * np.nansum(logprobs)
+
+	return loss
+
 
 # -------------- Loss Functions ----------------- #
 
@@ -132,6 +143,65 @@ def l2_loss(y_result, y_truth):
 	return np.sum(np.dot(y_truth-y_result, y_truth-y_result))
 
 
+# --------- Parameter Initialization ------------ #
+
+def initialize_parameters_zeros(layer_dims):
+	# Returns W1, b1, ..., WL, bL, the weights matrices an biases of each layer in the NN. The
+	# input will be the layer dimensions (an array).
+
+	parameters = {}
+	L = len(layer_dims)
+
+	for l in range(L):
+		parameters["W" + str(l+1)] = np.zeros((layer_dims[l + 1], layer_dims[l]))
+		parameters["b" + str(l+1)] = np.zeros((layer_dims[l + 1], 1))
+
+	return parameters
+
+
+def initialize_parameters_random(layer_dims):
+	# Returns W1, b1, ..., WL, bL, the weights matrices and biases of each layer in the NN. The
+	# input will be the layer dimensions (an array).
+
+	parameters = {}
+	L = len(layer_dims)
+
+	for l in range(L):
+		parameters["W" + str(l + 1)] = np.random.randn(layer_dims[l + 1], layer_dims[l])
+		parameters["b" + str(l + 1)] = np.zeros((layer_dims[l + 1], 1))
+
+	return parameters
+
+
+def initialize_parameters_he(layer_dims):
+	# Returns W1, b1, ..., WL, bL, the weights matrices and biases of each layer in the NN. The
+	# input will be the layer dimensions (an array).
+
+	parameters = {}
+	L = len(layer_dims)
+
+	for l in range(L):
+		parameters["W" + str(l + 1)] = np.random.randn(layer_dims[l + 1], layer_dims[l]) * np.sqrt(2/layer_dims[l])
+		parameters["b" + str(l + 1)] = np.zeros((layer_dims[l + 1], 1))
+
+	return parameters
+
+# ------------- Parameter Update ---------------- #
+
+def update_parameters(parameters, grads, learning_rate):
+	# Update the parameters using gradient descent
+
+	# The number of layers in the NN is:
+	L = len(parameters) // 2
+
+	# Update rule for each parameter:
+	for l in range(L):
+		parameters["W" + str(l+1)] = parameters["W" + str(l+1)] - learning_rate * grads["dW" + str(l+1)]
+		parameters["b" + str(l+1)] = parameters["b" + str(l+1)] - learning_rate * grads["db" + str(l+1)]
+
+	return parameters
+
+
 # ----------------- Plotting -------------------- #
 
 def plot_costs(costs, learning_rate):
@@ -141,3 +211,96 @@ def plot_costs(costs, learning_rate):
 	plt.xlabel('Iterations')
 	plt.title("Learning rate: " + str(learning_rate))
 	plt.show()
+
+
+def plot_decision_boundary(model, X, Y):
+	x_min, x_max = X[0, :].min() - 1, X[0, :].max() + 1
+	y_min, y_max = X[1, :].min() - 1, X[1, :].max() + 1
+
+	# Generate a grid of step-size h
+	h = 0.01
+
+	xx, yy = np.meshgrid(np.arange(start=x_min, stop=x_max, step=h),
+	                     np.arange(start=y_min, stop=y_min, step=h))
+
+	# Predict the function value for the whole grid
+	z = model(np.c_[xx.ravel(), yy.ravel()])
+	z = z.reshape(xx.shape)
+
+	# Plot the contour and training examples
+	plt.contour(xx, yy, z, cmap=plt.cm.Spectral)
+	plt.ylabel('x2')
+	plt.xlabel('x1')
+	plt.scatter(X[0, :], X[1, :], c=y, cmap=plt.cm.Spectral)
+	plt.show()
+
+
+def plot_boundaries(title, xmin, xmax, ymin, ymax, parameters, x_train, y_train):
+	plt.title(str(title))
+	axes = plt.gca()
+	axes.set_xlim([xmin, xmax])
+	axes.set_ylim([ymin, ymax])
+	plot_decision_boundary(lambda x: predict_dec(parameters, x.T), x_train, y_train)
+
+
+# ----------------- Predictions -------------------- #
+
+def predict_decision(parameters, x):
+	# Returns a vector of 1 or 0 if the prediction is true.
+	aL, cache = forward_propagation(x, parameters)
+	predictions = (aL > 0.5)
+
+	return predictions
+
+
+# -------------- Forward Propagation ----------------- #
+
+def forward_propagation(x, parameters):
+	# Implements forward propagation and computes the loss. Returns yhat and the cache.
+
+	W1 = parameters["W1"]
+	b1 = parameters["b1"]
+	W2 = parameters["W2"]
+	b2 = parameters["b2"]
+	W3 = parameters["W3"]
+	b3 = parameters["b3"]
+
+	# Our NN architecture is Linear -> ReLU -> Linear -> ReLU -> Linear -> Sigmoid
+	z1 = np.dot(W1, x) + b1
+	a1 = relu(z1)
+	z2 = np.dot(W2, a1) + b2
+	a2 = relu(z2)
+	z3 = np.dot(W3, a2) + b3
+	a3 = sigmoid(z3)
+
+	cache = (z1, a1, W1, b1, z2, a2, W2, b2, z3, a3, W3, b3)
+
+	return a3, cache
+
+# --------------- Backpropagation ------------------- #
+
+def backpropagation(x, y, cache):
+	# Implement backpropagation. Returns the dictionary of gradients.
+
+	m = x.shape[1]
+	(z1, a1, W1, b1, z2, a2, W2, b2, z3, a3, W3, b3) = cache
+
+	dz3 = 1./m * (a3-y)
+	dW3 = np.dot(dz3, a2.T)
+	db3 = np.sum(dz3, axis=1, keepdims=True)
+
+	da2 = np.dot(W3.T, dz3)
+	dz2 = np.multiply(da2, np.int64(a2 > 0))
+	dW2 = np.dot(dz2, a1.T)
+	db2 = np.sum(dz2, axis=1, keepdims=True)
+
+	da1 = np.dot(W2.T, dz2)
+	dz1 = np.multiply(da1, np.int64(a1 > 0))
+	dW1 = np.dot(dz1, x.T)
+	db1 = np.sum(dz1, axis=1, keepdims=True)
+
+	gradients = {"dz3": dz3, "dW3": dW3, "db3": db3, "da2": da2,
+	             "dz2": dz2, "dW2": dW2, "db2": db2, "da1": da1,
+	             "dz1": dz1, "dW1": dW1, "db1": db1}
+
+	return gradients
