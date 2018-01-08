@@ -10,6 +10,66 @@ def normalize_rows(x):
 	return x/x_norm
 
 
+def normalize_columns(x):
+	# Normalize the columns of a numpy array x of any size
+	x_norm = np.linalg.norm(x, axis=0, keepdims=True)
+	return x/x_norm
+
+
+def dictionary_to_vector(dictionary):
+	# Roll the dictionary into a single vector.
+
+	keys = []
+	count = 0
+
+	# Modify this to follow the architecture of the NN
+	for key in ["W1", "b1", "W2", "b2", "W3", "b3"]:
+		# Flatten parameter
+		new_vector = np.reshape(dictionary[key], (-1, 1))
+		keys = keys + [key]*new_vector.shape[0]
+
+		if count==0:
+			theta = new_vector
+		else:
+			theta = np.concatenate(a_tuple=(theta, new_vector), axis=0)
+
+		count +=1
+
+	return theta, keys
+
+
+def vector_to_dictionary(vector):
+	# Unroll a new dictionary from the vector.
+	parameters = {}
+	# Modify this to follow the architecture of the NN
+	parameters["W1"] = vector[:20].reshape((5, 4))
+	parameters["b1"] = vector[20:25].reshape((5, 1))
+	parameters["W2"] = vector[25:40].reshape((3, 5))
+	parameters["b2"] = vector[40:43].reshape((3, 1))
+	parameters["W3"] = vector[43:46].reshape((1, 3))
+	parameters["b3"] = vector[46:47].reshape((1, 1))
+
+	return parameters
+
+
+def gradients_to_vector(gradients):
+	# Roll the gradients dictionary into a single vector.
+
+	count = 0
+	for key in ["dW1", "db1", "dW2", "db2", "dW3", "db3"]:
+		# Flatten parameter
+		new_vector = np.reshape(gradients[key], (-1, 1))
+
+		if count==0:
+			theta = new_vector
+		else:
+			theta = np.concatenate(a_tuple=(theta, new_vector), axis=0)
+
+		count += 1
+
+	return theta
+
+
 # ------------ Activation Functions -------------#
 
 def arctan(x):
@@ -110,6 +170,46 @@ def d_sigmoid(x):
 def d_tanh(x):
 	# Returns the derivative of the tanh evaluated at a numpy array x of any size
 	return 1 - np.power(tanh(x), 2)
+
+
+# --------------- Gradient Cehck ---------------- #
+
+def gradient_check(parameters, gradients, x, y, epsilon, threshold):
+	# Checks if backward_propagation computes correctly the gradient of the cost.
+	# Returns the difference=|grads-grads_approx|/(|grads|+|grads_approx|), which we compare to epsilon.
+	parameters_values, _ = dictionary_to_vector(dictionary=parameters)
+	grads = gradients_to_vector(gradients=gradients)
+	num_parameters = parameters_values.shape[0]
+
+	J_plus = np.zeros((num_parameters, 1))
+	J_minus = np.zeros((num_parameters, 1))
+	grads_approx = np.zeros((num_parameters, 1))
+
+	# We now compute grads_approx
+	for i in range(num_parameters):
+		# Compute J_plus[i]
+		theta_plus = np.copy(parameters_values)
+		theta_plus[i][0] += epsilon
+		J_plus[i], _ = forward_propagation(x, y, vector_to_dictionary(vector=theta_plus))
+
+		# Compute J_minus[i]
+		theta_minus = np.copy(parameters_values)
+		theta_minus[i][0] += epsilon
+		J_minus[i], _ = forward_propagation(x, y, vector_to_dictionary(vector=theta_minus))
+
+		grads_approx[i] = (J_plus[i] - J_minus[i])/(2*epsilon)
+
+	# Calculate the difference
+	numerator = np.linalg.norm(grads - grads_approx)
+	denominator = np.linalg.norm(grads) + np.linalg.norm(grads_approx)
+	difference = numerator / denominator
+
+	if difference > threshold:
+		print("There is a mistake in the backpropagation! Difference = " + str(difference))
+	else:
+		print("The backpropagation works fine! Difference = " + str(difference))
+
+	return difference
 
 
 # -------------- Reshaping images --------------- #
@@ -255,8 +355,12 @@ def predict_decision(parameters, x):
 
 # -------------- Forward Propagation ----------------- #
 
-def forward_propagation(x, parameters):
-	# Implements forward propagation and computes the loss. Returns yhat and the cache.
+def forward_propagation(x, y, parameters):
+	# Implements forward propagation and computes the loss. Returns yhat (a3) and the cache.
+	# This should be modified per the architecture of the NN being  used.
+
+
+	m = x.shape[1] # Number of training examples
 
 	W1 = parameters["W1"]
 	b1 = parameters["b1"]
@@ -268,36 +372,45 @@ def forward_propagation(x, parameters):
 	# Our NN architecture is Linear -> ReLU -> Linear -> ReLU -> Linear -> Sigmoid
 	z1 = np.dot(W1, x) + b1
 	a1 = relu(z1)
+
 	z2 = np.dot(W2, a1) + b2
 	a2 = relu(z2)
+
 	z3 = np.dot(W3, a2) + b3
 	a3 = sigmoid(z3)
 
+	# Cost
+
+	logprobs = np.multiply(-np.log(a3, y)) + np.multiply(-np.log(1-a3), 1-y)
+	cost = 1./m * np.sum(logprobs)
+
 	cache = (z1, a1, W1, b1, z2, a2, W2, b2, z3, a3, W3, b3)
 
-	return a3, cache
+	return cost, cache
+
 
 # --------------- Backpropagation ------------------- #
 
 def backpropagation(x, y, cache):
 	# Implement backpropagation. Returns the dictionary of gradients.
 
-	m = x.shape[1]
+	m = x.shape[1] # Number of training examples.
+
 	(z1, a1, W1, b1, z2, a2, W2, b2, z3, a3, W3, b3) = cache
 
-	dz3 = 1./m * (a3-y)
-	dW3 = np.dot(dz3, a2.T)
-	db3 = np.sum(dz3, axis=1, keepdims=True)
+	dz3 = a3-y
+	dW3 = 1./m * np.dot(dz3, a2.T)
+	db3 = 1./m * np.sum(dz3, axis=1, keepdims=True)
 
 	da2 = np.dot(W3.T, dz3)
 	dz2 = np.multiply(da2, np.int64(a2 > 0))
-	dW2 = np.dot(dz2, a1.T)
-	db2 = np.sum(dz2, axis=1, keepdims=True)
+	dW2 =1./m *  np.dot(dz2, a1.T)
+	db2 = 1./m * np.sum(dz2, axis=1, keepdims=True)
 
 	da1 = np.dot(W2.T, dz2)
 	dz1 = np.multiply(da1, np.int64(a1 > 0))
-	dW1 = np.dot(dz1, x.T)
-	db1 = np.sum(dz1, axis=1, keepdims=True)
+	dW1 = 1./m * np.dot(dz1, x.T)
+	db1 = 1./m * np.sum(dz1, axis=1, keepdims=True)
 
 	gradients = {"dz3": dz3, "dW3": dW3, "db3": db3, "da2": da2,
 	             "dz2": dz2, "dW2": dW2, "db2": db2, "da1": da1,
