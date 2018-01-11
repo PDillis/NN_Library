@@ -286,9 +286,37 @@ def initialize_parameters_he(layer_dims):
 
 	return parameters
 
+
+def initialize_velocity(parameters):
+	# Initialize the velocity as a dictionary.
+	L = len(parameters) // 2
+	v = {}
+
+	# Initialize velocity
+	for l in range(L):
+		v["dW" + str(l+1)] = np.zeros(parameters["W" + str(l+1)].shape)
+		v["db" + str(l+1)] = np.zeros(parameters["b" + str(l+1)].shape)
+
+	return v
+
+def initialize_adam(parameters):
+	# Initialize v and s as two dictionaries.
+
+	L = len(parameters) // 2
+	v = {}
+	s = {}
+
+	for l in range(L):
+		v["dW" + str(l+1)] = np.zeros(parameters["W" + str(l+1)].shape)
+		v["db" + str(l+1)] = np.zeros(parameters["b" + str(l+1)].shape)
+		s["dW" + str(l+1)] = np.zeros(parameters["W" + str(l+1)].shape)
+		s["db" + str(l+1)] = np.zeros(parameters["b" + str(l+1)].shape)
+
+	return v, s
+
 # ------------- Parameter Update ---------------- #
 
-def update_parameters(parameters, grads, learning_rate):
+def update_parameters_with_gd(parameters, grads, learning_rate):
 	# Update the parameters using gradient descent
 
 	# The number of layers in the NN is:
@@ -300,6 +328,56 @@ def update_parameters(parameters, grads, learning_rate):
 		parameters["b" + str(l+1)] = parameters["b" + str(l+1)] - learning_rate * grads["db" + str(l+1)]
 
 	return parameters
+
+
+def update_parameters_with_momentum(parameters, grads, v, beta, learning_rate):
+	# Update the parameters using momentum
+
+	# The number of layers in the NN is:
+	L = len(parameters) // 2
+
+	# Update rule for each parameter:
+	for l in range(L):
+		# Compute velocities
+		v["dW" + str(l+1)] = beta * v["dW" + str(l+1)] + (1-beta) * grads["dW" + str(l+1)]
+		v["db" + str(l+1)] = beta * v["db" + str(l+1)] + (1-beta) * grads["db" + str(l+1)]
+
+		# Update the parameters
+		parameters["W" + str(l+1)] = parameters["W" + str(l+1)] - learning_rate * v["dW" + str(l+1)]
+		parameters["b" + str(l+1)] = parameters["b" + str(l+1)] - learning_rate * v["db" + str(l+1)]
+
+	return parameters, v
+
+
+def update_parameters_with_adam(parameters, grads, v, s, t, learning_rate=0.01,
+                                beta1=0.9, beta2=0.999, epsilon=1e-8):
+	# Update the parameters using Adam optimizer.
+	L = len(parameters) // 2
+	v_corrected = {}
+	s_corrected = {}
+
+	for l in range(L):
+		# Moving average of the gradients.
+		v["dW" + str(l+1)] = beta1 * v["dW" + str(l+1)] + (1-beta1) * grads["dW" + str(l+1)]
+		v["db" + str(l+1)] = beta1 * v["db" + str(l+1)] + (1-beta1) * grads["db" + str(l+1)]
+
+		# Compute the bias-corrected velocites (first moment estimates).
+		v_corrected["dW" + str(l+1)] = v["dW" + str(l+1)] / (1-beta1**t)
+		v_corrected["db" + str(l+1)] = v["db" + str(l+1)] / (1-beta1**t)
+
+		# Moving average of the squared gradients.
+		s["dW" + str(l+1)] = beta2 * s["dW" + str(l+1)] + (1-beta2) * np.square(grads["dW" + str(l+1)])
+		s["db" + str(l+1)] = beta2 * s["db" + str(l+1)] + (1-beta2) * np.square(grads["db" + str(l+1)])
+
+		# Compute the bias-corrected accelerations (second moment estimates).
+		s_corrected["dW" + str(l+1)] = s["dW" + str(l+1)] / (1-beta2**t)
+		s_corrected["db" + str(l+1)] = s["db" + str(l+1)] / (1-beta2**t)
+
+		# Finally, update the parameters:
+		parameters["W" + str(l+1)] = parameters["W" + str(l+1)] - learning_rate * v_corrected["dW" + str(l+1)]/(np.sqrt(s_corrected["dW" + str(l+1)]) + epsilon)
+		parameters["b" + str(l+1)] = parameters["b" + str(l+1)] - learning_rate * v_corrected["db" + str(l+1)]/(np.sqrt(s_corrected["db" + str(l+1)]) + epsilon)
+
+	return parameters, v, s
 
 
 # ----------------- Plotting -------------------- #
@@ -394,26 +472,139 @@ def forward_propagation(x, y, parameters):
 def backpropagation(x, y, cache):
 	# Implement backpropagation. Returns the dictionary of gradients.
 
-	m = x.shape[1] # Number of training examples.
+	m = x.shape[1]  # Number of training examples.
 
 	(z1, a1, W1, b1, z2, a2, W2, b2, z3, a3, W3, b3) = cache
 
 	dz3 = a3-y
-	dW3 = 1./m * np.dot(dz3, a2.T)
-	db3 = 1./m * np.sum(dz3, axis=1, keepdims=True)
+	dW3 = 1. / m * np.dot(dz3, a2.T)
+	db3 = 1. / m * np.sum(dz3, axis=1, keepdims=True)
 
 	da2 = np.dot(W3.T, dz3)
 	dz2 = np.multiply(da2, np.int64(a2 > 0))
-	dW2 =1./m *  np.dot(dz2, a1.T)
-	db2 = 1./m * np.sum(dz2, axis=1, keepdims=True)
+	dW2 = 1. / m *  np.dot(dz2, a1.T)
+	db2 = 1. / m * np.sum(dz2, axis=1, keepdims=True)
 
 	da1 = np.dot(W2.T, dz2)
 	dz1 = np.multiply(da1, np.int64(a1 > 0))
-	dW1 = 1./m * np.dot(dz1, x.T)
-	db1 = 1./m * np.sum(dz1, axis=1, keepdims=True)
+	dW1 = 1. /m * np.dot(dz1, x.T)
+	db1 = 1. /m * np.sum(dz1, axis=1, keepdims=True)
 
 	gradients = {"dz3": dz3, "dW3": dW3, "db3": db3, "da2": da2,
 	             "dz2": dz2, "dW2": dW2, "db2": db2, "da1": da1,
 	             "dz1": dz1, "dW1": dW1, "db1": db1}
 
 	return gradients
+
+# ------------------ Minibatch ---------------------- #
+
+
+def random_mini_batches(x, y, minibatch_size=32, seed=13):
+	# Create a list of random minibatches from our training set (X, Y).
+
+	np.random.seed(seed=seed)
+	m = x.shape[1]
+	mini_batches = []
+
+	# Shuffle (X, Y)
+	permutation = list(np.random.permutation(m))
+	shuffled_X = x[:, permutation]
+	shuffled_Y = y[:, permutation].reshape((1,m))
+
+	# Partition (shuffled_X, shuffled_Y) minus the last minibatch.
+	num_complete_minibatches = math.floor(m/minibatch_size)
+
+	for k in range(0, num_complete_minibatches):
+		minibatch_X = shuffled_X[:, k*minibatch_size:(k+1)*minibatch_size]
+		minibatch_Y = shuffled_Y[:, k*minibatch_size:(k+1)*minibatch_size]
+
+		minibatch = (minibatch_X, minibatch_Y)
+		mini_batches.append(minibatch)
+
+	# We now handle the last minibatch:
+	if m % minibatch_size != 0:
+		minibatch_X = shuffled_X[:, minibatch_size * num_complete_minibatches:]
+		minibatch_Y = shuffled_Y[:, minibatch_size * num_complete_minibatches:]
+
+		minibatch = (minibatch_X, minibatch_Y)
+		mini_batches.append(minibatch)
+
+	return mini_batches
+
+
+# -------------------- Model ------------------------ #
+
+def model(x, y, layers_dims, optimizer, learning_rate=0.0007, mini_batch_size=64, beta=0.9,
+          beta1=0.9, beta2=0.999, epsilon=1e-8, num_epochs=10000, print_cost=True):
+
+	# L-layer NN which can be run using different optimizers.
+
+	costs = []  # Keeping track of costs to plot later on
+	t = 0  # Counter used in Adam
+	seed = 13
+
+	parameters = initialize_parameters(layers_dims)
+
+	# Initialize the respective optimizer
+	if optimizer == "gd":
+		pass
+	elif optimizer == "momentum":
+		v = initialize_velocity(parameters=parameters)
+	elif optimizer == "adam":
+		v = initialize_adam(parameters=parameters)
+
+	# Optimization loop:
+	for i in range(num_epochs):
+		# Define random mini-batches. We increase the seed to reshuffle the dataset after each epoch
+		seed += 1
+		minibatches = random_mini_batches(x, y, mini_batch_size, seed)
+
+		for minibatch in minibatches:
+			# Select a mini-batch:
+			(minibatch_X, minibatch_Y) = minibatch
+
+			# Forward propagation
+			a3, caches = forward_propagation(minibatch_X, parameters)
+
+			# Compute the cost
+			cost = compute_cost(a3, minibatch_Y)
+
+			# Backpropagation:
+			grads = backpropagation(minibatch_X, minibatch_Y, caches)
+
+			# Update the parameters
+			if optimizer == "gd":
+				parameters = update_parameters_with_gd(parameters=parameters,
+				                                       grads=grads,
+				                                       learning_rate=learning_rate)
+			elif optimizer == "momentum":
+				parameters = update_parameters_with_momentum(parameters=parameters,
+				                                             grads=grads,
+				                                             v=v,
+				                                             beta=beta,
+				                                             learning_rate=learning_rate)
+			elif optimizer == "adam":
+				parameters = update_parameters_with_adam(parameters=parameters,
+				                                         grads=grads,
+				                                         v=v,
+				                                         s=s,
+				                                         t=t,
+				                                         learning_rate=learning_rate,
+				                                         beta1=beta1,
+				                                         beta2=beta2,
+				                                         epsilon=epsilon)
+
+		# Print the cost every 1000 epoch:
+		if print_cost and i % 1000 == 0:
+			print("Cost after epoch %i: %f" %(i, cost))
+		if print_cost and i % 100 == 0:
+			costs.append(cost)
+
+	# Plot the cost:
+	plt.plot(costs)
+	plt.ylabel('cost')
+	plt.xlabel('epochs (per 100)')
+	plt.title("Learning rate: " + str(learning_rate))
+	plt.show()
+
+	return parameters
